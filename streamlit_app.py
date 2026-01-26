@@ -1,9 +1,3 @@
-pip install nba_api
-streamlit run streamlit_app.py
-nba_api
-pandas
-streamlit
-requests
 # ===============================
 # Props AI — Official NBA.com Stats
 # Single-file Streamlit App
@@ -123,7 +117,3 @@ if st.button("Evaluate Bet"):
 
         st.markdown("### 🕒 Recent Games")
         st.dataframe(result["games"], use_container_width=True)
-
-
-
-
