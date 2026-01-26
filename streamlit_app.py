@@ -13,31 +13,16 @@ st.subheader("Evaluate a player's prop bet using real NBA stats")
 # ===============================
 #  1️⃣ Load all players locally
 # ===============================
+import pandas as pd
+import streamlit as st
 
 @st.cache_data
 def load_all_players():
-    players = []
-    page = 1
-    while True:
-        res = requests.get("https://www.balldontlie.io/api/v1/players", params={"per_page": 100, "page": page})
-        res.raise_for_status()
-        data = res.json()
-        players.extend(data["data"])
-        if page >= data["meta"]["total_pages"]:
-            break
-        page += 1
-    df = pd.DataFrame(players)
-    df["full_name"] = df["first_name"] + " " + df["last_name"]
+    df = pd.read_csv("nba_rosters_30_teams_full.csv")
     return df
 
 players_df = load_all_players()
-
-def get_player_id_local(player_name):
-    name_lower = player_name.lower()
-    matches = players_df[players_df["full_name"].str.lower().str.contains(name_lower)]
-    if matches.empty:
-        return None
-    return matches.iloc[0]["id"]
+st.write(f"Loaded {len(players_df)} players")
 
 # ===============================
 #  2️⃣ Fetch last N games
