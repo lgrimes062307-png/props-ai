@@ -7,19 +7,35 @@ import pandas as pd
 BASE_URL = "https://www.balldontlie.io/api/v1"
 
 def get_player_id(player_name):
+    """
+    Returns the player ID from balldontlie given a player_name.
+    Supports partial names (first or last) and is case-insensitive.
+    """
     try:
-        res = requests.get(f"https://www.balldontlie.io/api/v1/players", params={"search": player_name})
-        res.raise_for_status()  # Raise an error for HTTP problems
-        data = res.json().get("data", [])
-        if not data:
+        res = requests.get("https://www.balldontlie.io/api/v1/players", params={"search": player_name})
+        res.raise_for_status()
+        players = res.json().get("data", [])
+
+        if not players:
             return None
-        return data[0]["id"]
+
+        # Try to find a close match
+        player_name_lower = player_name.lower()
+        for p in players:
+            full_name = f"{p['first_name']} {p['last_name']}".lower()
+            if player_name_lower in full_name or full_name in player_name_lower:
+                return p["id"]
+
+        # fallback: return first result
+        return players[0]["id"]
+
     except requests.exceptions.RequestException as e:
         print(f"Request failed: {e}")
         return None
     except ValueError as e:
         print(f"JSON decode error: {e}")
         return None
+
 
 
 def get_last_games(player_id, num_games=10):
