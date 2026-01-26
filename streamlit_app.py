@@ -1,42 +1,47 @@
-#
-#BallDontlie
-#
-import requests
+# ===============================
+#  PROPS AI - FULL WORKING VERSION
+# ===============================
+
+import streamlit as st
 import pandas as pd
+import requests
 
-BASE_URL = "https://www.balldontlie.io/api/v1"
+st.set_page_config(page_title="Props AI", layout="centered")
+st.title("🏀 Props AI")
+st.subheader("Evaluate a player's prop bet using real NBA stats")
 
-def get_player_id(player_name):
-    """
-    Returns the player ID from balldontlie given a player_name.
-    Supports partial names (first or last) and is case-insensitive.
-    """
-    try:
-        res = requests.get("https://www.balldontlie.io/api/v1/players", params={"search": player_name})
+# ===============================
+#  1️⃣ Load all players locally
+# ===============================
+
+@st.cache_data
+def load_all_players():
+    players = []
+    page = 1
+    while True:
+        res = requests.get("https://www.balldontlie.io/api/v1/players", params={"per_page": 100, "page": page})
         res.raise_for_status()
-        players = res.json().get("data", [])
+        data = res.json()
+        players.extend(data["data"])
+        if page >= data["meta"]["total_pages"]:
+            break
+        page += 1
+    df = pd.DataFrame(players)
+    df["full_name"] = df["first_name"] + " " + df["last_name"]
+    return df
 
-        if not players:
-            return None
+players_df = load_all_players()
 
-        # Try to find a close match
-        player_name_lower = player_name.lower()
-        for p in players:
-            full_name = f"{p['first_name']} {p['last_name']}".lower()
-            if player_name_lower in full_name or full_name in player_name_lower:
-                return p["id"]
-
-        # fallback: return first result
-        return players[0]["id"]
-
-    except requests.exceptions.RequestException as e:
-        print(f"Request failed: {e}")
+def get_player_id_local(player_name):
+    name_lower = player_name.lower()
+    matches = players_df[players_df["full_name"].str.lower().str.contains(name_lower)]
+    if matches.empty:
         return None
-    except ValueError as e:
-        print(f"JSON decode error: {e}")
-        return None
+    return matches.iloc[0]["id"]
 
-
+# ===============================
+#  2️⃣ Fetch last N games
+# ===============================
 
 def get_last_games(player_id, num_games=10):
     try:
@@ -61,43 +66,15 @@ def get_last_games(player_id, num_games=10):
             else s["game"]["visitor_team"]["abbreviation"]
         } for s in stats])
         return df
-    except requests.exceptions.RequestException as e:
-        print(f"Request failed: {e}")
+    except:
         return None
-    except ValueError as e:
-        print(f"JSON decode error: {e}")
-        return None
-
-    stats = res.json()["data"]
-
-    if not stats:
-        return None
-
-    df = pd.DataFrame([{
-        "pts": s["pts"],
-        "ast": s["ast"],
-        "reb": s["reb"],
-        "opponent": s["game"]["home_team"]["abbreviation"]
-        if s["team"]["id"] != s["game"]["home_team_id"]
-        else s["game"]["visitor_team"]["abbreviation"]
-    } for s in stats])
-
-    return df
-
-import streamlit as st
 
 # ===============================
-# 🧠 BET EVALUATION LOGIC
+#  3️⃣ Evaluate prop bet
 # ===============================
+
 def evaluate_prop(player, prop, line, opponent):
-    """
-    Evaluates whether a prop bet is a good bet using real balldontlie stats.
-    prop: 'PTS', 'AST', 'REB'
-    line: the prop line
-    opponent: opponent team abbreviation
-    """
-    # 1️⃣ Get player ID
-    player_id = get_player_id(player)
+    player_id = get_player_id_local(player)
     if not player_id:
         return {
             "player": player,
@@ -106,10 +83,9 @@ def evaluate_prop(player, prop, line, opponent):
             "opponent": opponent,
             "probability": 0,
             "verdict": "❌ Player not found",
-            "explanation": ["Player name not found in database."]
+            "explanation": ["Player not found in database."]
         }
 
-    # 2️⃣ Get last 10 games
     df = get_last_games(player_id, num_games=10)
     if df is None or df.empty:
         return {
@@ -119,10 +95,9 @@ def evaluate_prop(player, prop, line, opponent):
             "opponent": opponent,
             "probability": 0,
             "verdict": "❌ No recent games",
-            "explanation": ["No recent game stats available."]
+            "explanation": ["No recent stats available."]
         }
 
-    # 3️⃣ Map prop to column
     prop_map = {"PTS": "pts", "AST": "ast", "REB": "reb"}
     if prop not in prop_map:
         return {
@@ -137,17 +112,17 @@ def evaluate_prop(player, prop, line, opponent):
 
     col = prop_map[prop]
 
-    # 4️⃣ Compute metrics
-    season_avg = df[col].mean()                   # avg of last 10 games (as proxy for season)
-    last5_avg = df[col].tail(5).mean()           # last 5 games average
+    # Metrics
+    season_avg = df[col].mean()                   # last 10 games proxy for season
+    last5_avg = df[col].tail(5).mean()           # last 5 games
     hit_rate = (df[col] > line).sum() / len(df)  # fraction over line
 
-    # 5️⃣ Simple scoring formula
+    # Scoring formula
     season_score = min(season_avg / line, 1)
     recent_score = min(last5_avg / line, 1)
     probability = (season_score*0.35 + recent_score*0.30 + hit_rate*0.35) * 100
 
-    # 6️⃣ Verdict thresholds
+    # Verdict
     if probability >= 65:
         verdict = "✅ Good Bet"
     elif probability >= 55:
@@ -155,9 +130,8 @@ def evaluate_prop(player, prop, line, opponent):
     else:
         verdict = "❌ Pass"
 
-    # 7️⃣ Explanation bullets
     explanation = [
-        f"Season avg (proxy from last 10 games): {season_avg:.1f} vs line {line}",
+        f"Season avg (last 10 games proxy): {season_avg:.1f} vs line {line}",
         f"Last 5 games avg: {last5_avg:.1f}",
         f"Hit rate over line: {int(hit_rate*100)}%",
         f"Probability score: {probability:.1f}%"
@@ -173,14 +147,9 @@ def evaluate_prop(player, prop, line, opponent):
         "explanation": explanation
     }
 
-
 # ===============================
-# 🌐 STREAMLIT UI
+#  4️⃣ Streamlit UI
 # ===============================
-st.set_page_config(page_title="Props AI", layout="centered")
-
-st.title("🏀 Props AI")
-st.subheader("Is this prop a good bet?")
 
 player = st.text_input("Player Name", "Luka Doncic")
 prop = st.selectbox("Prop Type", ["PTS", "AST", "REB"])
@@ -196,4 +165,4 @@ if st.button("Evaluate Bet"):
     st.markdown("### 📊 Why this bet:")
     for reason in result["explanation"]:
         st.write("•", reason)
-        
+
