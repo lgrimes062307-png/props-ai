@@ -1,12 +1,6 @@
-/mount/src/props-ai/streamlit_app.py
-
-
-# ===============================
-#  PROPS AI - STREAMLIT READY
-# ===============================
-
 import streamlit as st
 import pandas as pd
+from io import StringIO
 import requests
 
 st.set_page_config(page_title="Props AI", layout="centered")
@@ -14,38 +8,70 @@ st.title("🏀 Props AI")
 st.subheader("Evaluate a player's prop bet using real NBA stats")
 
 # ===============================
-#  1️⃣ Load all players locally
+#  1️⃣ Embedded NBA players CSV
 # ===============================
 
+CSV_STRING = """player_name,team_name,position
+LeBron James,LAL,SF
+Anthony Davis,LAL,PF
+D'Angelo Russell,LAL,PG
+Austin Reaves,LAL,SG
+Jarred Vanderbilt,LAL,C
+Stephen Curry,GSW,PG
+Klay Thompson,GSW,SG
+Draymond Green,GSW,PF
+Kevon Looney,GSW,C
+Andrew Wiggins,GSW,SF
+Giannis Antetokounmpo,MIL,PF
+Khris Middleton,MIL,SF
+Jrue Holiday,MIL,PG
+Brook Lopez,MIL,C
+Grayson Allen,MIL,SG
+Kevin Durant,BKN,SF
+Kyrie Irving,BKN,PG
+Ben Simmons,BKN,PF
+Nicolas Claxton,BKN,C
+Joe Harris,BKN,SG
+Joel Embiid,PHI,C
+James Harden,PHI,SG
+Tyrese Maxey,PHI,PG
+Tobias Harris,PHI,PF
+PJ Tucker,PHI,SF
+Luka Doncic,DAL,PG
+Kyrie Irving,DAL,SG
+Christian Wood,DAL,C
+Dorian Finney-Smith,DAL,SF
+Reggie Bullock,DAL,SF
+... (add all remaining players for full 30 teams)
+"""
+
+# Load CSV from string
 @st.cache_data
 def load_all_players():
-    # Make sure this CSV is in the same folder as streamlit_app.py
-    df = pd.read_csv("nba_rosters_30_teams_full.csv")
+    df = pd.read_csv(StringIO(CSV_STRING))
     return df
 
 players_df = load_all_players()
 st.write(f"Loaded {len(players_df)} players")
 
 # ===============================
-#  2️⃣ Player lookup
+#  2️⃣ Player lookup function
 # ===============================
 
 def get_player_id_local(player_name):
-    """Return player ID from CSV using partial, case-insensitive match"""
+    """Return player row from embedded CSV"""
     name_lower = player_name.lower()
     matches = players_df[players_df["player_name"].str.lower().str.contains(name_lower)]
     if matches.empty:
         return None
-    # Return the player row (we’ll use name and team)
     return matches.iloc[0]
 
 # ===============================
-#  3️⃣ Fetch last N games stats from balldontlie
+#  3️⃣ Fetch last games from balldontlie
 # ===============================
 
 def get_last_games(player_name, team_abbr, num_games=10):
-    """Fetch last N games from balldontlie for a player"""
-    # First, search player by name and team
+    """Fetch last N games stats for a player"""
     try:
         res = requests.get(
             "https://www.balldontlie.io/api/v1/players",
@@ -55,16 +81,17 @@ def get_last_games(player_name, team_abbr, num_games=10):
         data = res.json().get("data", [])
         if not data:
             return None
-        # Find the exact team match
+
+        # Match exact team
         player_id = None
         for p in data:
             if p["team"]["abbreviation"].upper() == team_abbr.upper():
                 player_id = p["id"]
                 break
         if player_id is None:
-            player_id = data[0]["id"]  # fallback to first match
+            player_id = data[0]["id"]
 
-        # Fetch last games
+        # Fetch stats
         res2 = requests.get(
             "https://www.balldontlie.io/api/v1/stats",
             params={
@@ -78,7 +105,6 @@ def get_last_games(player_name, team_abbr, num_games=10):
         if not stats:
             return None
 
-        # Convert to DataFrame
         df = pd.DataFrame([{
             "pts": s["pts"],
             "ast": s["ast"],
@@ -136,18 +162,11 @@ def evaluate_prop(player_name, prop, line, opponent):
         }
 
     col = prop_map[prop]
+    season_avg = df[col].mean()
+    last5_avg = df[col].tail(5).mean()
+    hit_rate = (df[col] > line).sum() / len(df)
+    probability = (season_avg/line*0.35 + last5_avg/line*0.30 + hit_rate*0.35)*100
 
-    # Metrics
-    season_avg = df[col].mean()                   # last 10 games proxy
-    last5_avg = df[col].tail(5).mean()           # last 5 games
-    hit_rate = (df[col] > line).sum() / len(df)  # fraction over line
-
-    # Scoring formula
-    season_score = min(season_avg / line, 1)
-    recent_score = min(last5_avg / line, 1)
-    probability = (season_score*0.35 + recent_score*0.30 + hit_rate*0.35) * 100
-
-    # Verdict
     if probability >= 65:
         verdict = "✅ Good Bet"
     elif probability >= 55:
