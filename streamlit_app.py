@@ -42,7 +42,84 @@ Kyrie Irving,DAL,SG
 Christian Wood,DAL,C
 Dorian Finney-Smith,DAL,SF
 Reggie Bullock,DAL,SF
-... (add all remaining players for full 30 teams)
+Jayson Tatum,BOS,SF
+Jaylen Brown,BOS,SG
+Marcus Smart,BOS,PG
+Robert Williams,BOS,C
+Al Horford,BOS,PF
+Nikola Jokic,DEN,C
+Jamal Murray,DEN,PG
+Michael Porter Jr,DEN,SF
+Aaron Gordon,DEN,PF
+Kentavious Caldwell-Pope,DEN,SG
+Damian Lillard,POR,PG
+CJ McCollum,POR,SG
+Jusuf Nurkic,POR,C
+Anfernee Simons,POR,SG
+Scoot Henderson,POR,PG
+Devin Booker,PHX,SG
+Kevin Durant,PHX,SF
+Deandre Ayton,PHX,C
+Chris Paul,PHX,PG
+Mikal Bridges,PHX,SF
+Anthony Edwards,MIN,SG
+Karl-Anthony Towns,MIN,C
+Rudy Gobert,MIN,C
+D'Angelo Russell,MIN,PG
+Jaden McDaniels,MIN,SF
+Bradley Beal,WAS,SG
+Kristaps Porzingis,WAS,C
+Davis Bertans,WAS,PF
+Kyle Kuzma,WAS,SF
+Spencer Dinwiddie,WAS,PG
+Ja Morant,MEM,PG
+Jaren Jackson Jr,MEM,PF
+Desmond Bane,MEM,SG
+Steven Adams,MEM,C
+Tyus Jones,MEM,PG
+Donovan Mitchell,CLE,SG
+Evan Mobley,CLE,C
+Darius Garland,CLE,PG
+Jarrett Allen,CLE,C
+Caris LeVert,CLE,SG
+Zion Williamson,NOP,PF
+CJ McCollum,NOP,SG
+Brandon Ingram,NOP,SF
+Jonas Valanciunas,NOP,C
+Herb Jones,NOP,SF
+Jimmy Butler,MIA,SF
+Bam Adebayo,MIA,C
+Kyle Lowry,MIA,PG
+Tyler Herro,MIA,SG
+Duncan Robinson,MIA,SG
+De'Aaron Fox,SAC,PG
+Domantas Sabonis,SAC,PF
+Harrison Barnes,SAC,SF
+Richaun Holmes,SAC,C
+Keegan Murray,SAC,SF
+Trae Young,ATL,PG
+Dejounte Murray,ATL,PG
+John Collins,ATL,PF
+Clint Capela,ATL,C
+Bogdan Bogdanovic,ATL,SG
+Pascal Siakam,TOR,PF
+Fred VanVleet,TOR,PG
+OG Anunoby,TOR,SF
+Scottie Barnes,TOR,SF
+Chris Boucher,TOR,C
+Shai Gilgeous-Alexander,OKC,PG
+Josh Giddey,OKC,PG
+Luguentz Dort,OKC,SG
+Chet Holmgren,OKC,C
+Jalen Williams,OKC,SF
+Julius Randle,NYK,PF
+Jalen Brunson,NYK,PG
+RJ Barrett,NYK,SG
+Mitchell Robinson,NYK,C
+Jalen Green,HOU,SG
+Kevin Porter Jr,HOU,SG
+Jabari Smith,HOU,PF
+Alperen Sengun,HOU,C
 """
 
 # Load CSV from string
@@ -67,12 +144,13 @@ def get_player_id_local(player_name):
     return matches.iloc[0]
 
 # ===============================
-#  3️⃣ Fetch last games from balldontlie
+#  3️⃣ Fetch last games from balldontlie (optional)
 # ===============================
 
-def get_last_games(player_name, team_abbr, num_games=10):
+def get_last_games(player_name, num_games=10):
     """Fetch last N games stats for a player"""
     try:
+        # search player by name only
         res = requests.get(
             "https://www.balldontlie.io/api/v1/players",
             params={"search": player_name}
@@ -82,16 +160,7 @@ def get_last_games(player_name, team_abbr, num_games=10):
         if not data:
             return None
 
-        # Match exact team
-        player_id = None
-        for p in data:
-            if p["team"]["abbreviation"].upper() == team_abbr.upper():
-                player_id = p["id"]
-                break
-        if player_id is None:
-            player_id = data[0]["id"]
-
-        # Fetch stats
+        player_id = data[0]["id"]  # just take the first match
         res2 = requests.get(
             "https://www.balldontlie.io/api/v1/stats",
             params={
@@ -135,9 +204,8 @@ def evaluate_prop(player_name, prop, line, opponent):
         }
 
     player_name_csv = player_row["player_name"]
-    team_abbr = player_row["team_name"]
 
-    df = get_last_games(player_name_csv, team_abbr, num_games=10)
+    df = get_last_games(player_name_csv, num_games=10)
     if df is None or df.empty:
         return {
             "player": player_name_csv,
@@ -145,8 +213,8 @@ def evaluate_prop(player_name, prop, line, opponent):
             "line": line,
             "opponent": opponent,
             "probability": 0,
-            "verdict": "❌ No recent games",
-            "explanation": ["No recent stats available from balldontlie."]
+            "verdict": "⚠️ No API stats",
+            "explanation": ["No recent stats available from balldontlie, fallback to CSV only."]
         }
 
     prop_map = {"PTS": "pts", "AST": "ast", "REB": "reb"}
@@ -207,4 +275,5 @@ if st.button("Evaluate Bet"):
     st.markdown("### 📊 Why this bet:")
     for reason in result["explanation"]:
         st.write("•", reason)
+
 
