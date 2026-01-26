@@ -1,5 +1,5 @@
 # ===============================
-#  PROPS AI - FULL WORKING VERSION
+#  PROPS AI - STREAMLIT READY
 # ===============================
 
 import streamlit as st
@@ -13,11 +13,10 @@ st.subheader("Evaluate a player's prop bet using real NBA stats")
 # ===============================
 #  1️⃣ Load all players locally
 # ===============================
-import pandas as pd
-import streamlit as st
 
 @st.cache_data
 def load_all_players():
+    # Make sure this CSV is in the same folder as streamlit_app.py
     df = pd.read_csv("nba_rosters_30_teams_full.csv")
     return df
 
@@ -25,12 +24,45 @@ players_df = load_all_players()
 st.write(f"Loaded {len(players_df)} players")
 
 # ===============================
-#  2️⃣ Fetch last N games
+#  2️⃣ Player lookup
 # ===============================
 
-def get_last_games(player_id, num_games=10):
+def get_player_id_local(player_name):
+    """Return player ID from CSV using partial, case-insensitive match"""
+    name_lower = player_name.lower()
+    matches = players_df[players_df["player_name"].str.lower().str.contains(name_lower)]
+    if matches.empty:
+        return None
+    # Return the player row (we’ll use name and team)
+    return matches.iloc[0]
+
+# ===============================
+#  3️⃣ Fetch last N games stats from balldontlie
+# ===============================
+
+def get_last_games(player_name, team_abbr, num_games=10):
+    """Fetch last N games from balldontlie for a player"""
+    # First, search player by name and team
     try:
         res = requests.get(
+            "https://www.balldontlie.io/api/v1/players",
+            params={"search": player_name}
+        )
+        res.raise_for_status()
+        data = res.json().get("data", [])
+        if not data:
+            return None
+        # Find the exact team match
+        player_id = None
+        for p in data:
+            if p["team"]["abbreviation"].upper() == team_abbr.upper():
+                player_id = p["id"]
+                break
+        if player_id is None:
+            player_id = data[0]["id"]  # fallback to first match
+
+        # Fetch last games
+        res2 = requests.get(
             "https://www.balldontlie.io/api/v1/stats",
             params={
                 "player_ids[]": player_id,
@@ -38,10 +70,12 @@ def get_last_games(player_id, num_games=10):
                 "postseason": False
             }
         )
-        res.raise_for_status()
-        stats = res.json().get("data", [])
+        res2.raise_for_status()
+        stats = res2.json().get("data", [])
         if not stats:
             return None
+
+        # Convert to DataFrame
         df = pd.DataFrame([{
             "pts": s["pts"],
             "ast": s["ast"],
@@ -55,38 +89,41 @@ def get_last_games(player_id, num_games=10):
         return None
 
 # ===============================
-#  3️⃣ Evaluate prop bet
+#  4️⃣ Evaluate prop bet
 # ===============================
 
-def evaluate_prop(player, prop, line, opponent):
-    player_id = get_player_id_local(player)
-    if not player_id:
+def evaluate_prop(player_name, prop, line, opponent):
+    player_row = get_player_id_local(player_name)
+    if player_row is None:
         return {
-            "player": player,
+            "player": player_name,
             "prop": prop,
             "line": line,
             "opponent": opponent,
             "probability": 0,
             "verdict": "❌ Player not found",
-            "explanation": ["Player not found in database."]
+            "explanation": ["Player not found in CSV."]
         }
 
-    df = get_last_games(player_id, num_games=10)
+    player_name_csv = player_row["player_name"]
+    team_abbr = player_row["team_name"]
+
+    df = get_last_games(player_name_csv, team_abbr, num_games=10)
     if df is None or df.empty:
         return {
-            "player": player,
+            "player": player_name_csv,
             "prop": prop,
             "line": line,
             "opponent": opponent,
             "probability": 0,
             "verdict": "❌ No recent games",
-            "explanation": ["No recent stats available."]
+            "explanation": ["No recent stats available from balldontlie."]
         }
 
     prop_map = {"PTS": "pts", "AST": "ast", "REB": "reb"}
     if prop not in prop_map:
         return {
-            "player": player,
+            "player": player_name_csv,
             "prop": prop,
             "line": line,
             "opponent": opponent,
@@ -98,7 +135,7 @@ def evaluate_prop(player, prop, line, opponent):
     col = prop_map[prop]
 
     # Metrics
-    season_avg = df[col].mean()                   # last 10 games proxy for season
+    season_avg = df[col].mean()                   # last 10 games proxy
     last5_avg = df[col].tail(5).mean()           # last 5 games
     hit_rate = (df[col] > line).sum() / len(df)  # fraction over line
 
@@ -123,7 +160,7 @@ def evaluate_prop(player, prop, line, opponent):
     ]
 
     return {
-        "player": player,
+        "player": player_name_csv,
         "prop": prop,
         "line": line,
         "opponent": opponent,
@@ -133,20 +170,18 @@ def evaluate_prop(player, prop, line, opponent):
     }
 
 # ===============================
-#  4️⃣ Streamlit UI
+#  5️⃣ Streamlit UI
 # ===============================
 
-player = st.text_input("Player Name", "Luka Doncic")
-prop = st.selectbox("Prop Type", ["PTS", "AST", "REB"])
-line = st.number_input("Prop Line", min_value=0.0, value=29.5)
-opponent = st.text_input("Opponent (Team Abbrev)", "GSW")
+player_input = st.text_input("Player Name", "Luka Doncic")
+prop_input = st.selectbox("Prop Type", ["PTS", "AST", "REB"])
+line_input = st.number_input("Prop Line", min_value=0.0, value=29.5)
+opponent_input = st.text_input("Opponent (Team Abbrev)", "GSW")
 
 if st.button("Evaluate Bet"):
-    result = evaluate_prop(player, prop, line, opponent)
-
+    result = evaluate_prop(player_input, prop_input, line_input, opponent_input)
     st.markdown(f"## {result['verdict']}")
     st.metric("Confidence", f"{result['probability']}%")
-
     st.markdown("### 📊 Why this bet:")
     for reason in result["explanation"]:
         st.write("•", reason)
