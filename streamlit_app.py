@@ -52,8 +52,6 @@ def get_last_games(player_id, num_games=10):
         print(f"JSON decode error: {e}")
         return None
 
-        
-    )
     stats = res.json()["data"]
 
     if not stats:
