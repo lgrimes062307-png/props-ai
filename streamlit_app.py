@@ -1,4 +1,4 @@
-pip install nba_api streamlit pandas
+pip install nba_api
 streamlit run streamlit_app.py
 nba_api
 pandas
