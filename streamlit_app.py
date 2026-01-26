@@ -7,19 +7,51 @@ import pandas as pd
 BASE_URL = "https://www.balldontlie.io/api/v1"
 
 def get_player_id(player_name):
-    res = requests.get(f"{BASE_URL}/players", params={"search": player_name})
-    data = res.json()["data"]
-    if not data:
+    try:
+        res = requests.get(f"https://www.balldontlie.io/api/v1/players", params={"search": player_name})
+        res.raise_for_status()  # Raise an error for HTTP problems
+        data = res.json().get("data", [])
+        if not data:
+            return None
+        return data[0]["id"]
+    except requests.exceptions.RequestException as e:
+        print(f"Request failed: {e}")
         return None
-    return data[0]["id"]
+    except ValueError as e:
+        print(f"JSON decode error: {e}")
+        return None
+
 
 def get_last_games(player_id, num_games=10):
-    res = requests.get(
-        f"{BASE_URL}/stats",
-        params={
-            "player_ids[]": player_id,
-            "per_page": num_games,
-            "postseason": False
+    try:
+        res = requests.get(
+            "https://www.balldontlie.io/api/v1/stats",
+            params={
+                "player_ids[]": player_id,
+                "per_page": num_games,
+                "postseason": False
+            }
+        )
+        res.raise_for_status()
+        stats = res.json().get("data", [])
+        if not stats:
+            return None
+        df = pd.DataFrame([{
+            "pts": s["pts"],
+            "ast": s["ast"],
+            "reb": s["reb"],
+            "opponent": s["game"]["home_team"]["abbreviation"]
+            if s["team"]["id"] != s["game"]["home_team"]["id"]
+            else s["game"]["visitor_team"]["abbreviation"]
+        } for s in stats])
+        return df
+    except requests.exceptions.RequestException as e:
+        print(f"Request failed: {e}")
+        return None
+    except ValueError as e:
+        print(f"JSON decode error: {e}")
+        return None
+
         }
     )
     stats = res.json()["data"]
