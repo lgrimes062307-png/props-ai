@@ -1,3 +1,42 @@
+#
+#BallDontlie
+#
+import requests
+import pandas as pd
+
+BASE_URL = "https://www.balldontlie.io/api/v1"
+
+def get_player_id(player_name):
+    res = requests.get(f"{BASE_URL}/players", params={"search": player_name})
+    data = res.json()["data"]
+    if not data:
+        return None
+    return data[0]["id"]
+
+def get_last_games(player_id, num_games=10):
+    res = requests.get(
+        f"{BASE_URL}/stats",
+        params={
+            "player_ids[]": player_id,
+            "per_page": num_games,
+            "postseason": False
+        }
+    )
+    stats = res.json()["data"]
+
+    if not stats:
+        return None
+
+    df = pd.DataFrame([{
+        "pts": s["pts"],
+        "ast": s["ast"],
+        "reb": s["reb"],
+        "opponent": s["game"]["home_team"]["abbreviation"]
+        if s["team"]["id"] != s["game"]["home_team_id"]
+        else s["game"]["visitor_team"]["abbreviation"]
+    } for s in stats])
+
+    return df
 
 import streamlit as st
 
@@ -69,3 +108,4 @@ if st.button("Evaluate Bet"):
     st.markdown("### 📊 Why this bet:")
     for reason in result["explanation"]:
         st.write("•", reason)
+        
