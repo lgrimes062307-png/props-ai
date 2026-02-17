@@ -1,4 +1,0 @@
-nba_api
-pandas
-streamlit
-requests
